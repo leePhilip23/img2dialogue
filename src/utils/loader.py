@@ -64,7 +64,7 @@ class CustomImageDataset(Dataset):
         return data[split]
 
 
-    def _load_img_process(self, url: str) -> BlipImageProcessorFast | CLIPImageProcessorFast:
+    def _load_img_process(self, img_model_name: str) -> BlipImageProcessorFast | CLIPImageProcessorFast:
         """
         Loads the image processor and returns it
 
@@ -78,18 +78,18 @@ class CustomImageDataset(Dataset):
             ImgProcessorNotFound
         """
         try:
-            if "blip" in url.lower():
-                processor = BlipImageProcessorFast.from_pretrained(url)
-            elif "clip" in url.lower():
-                processor = CLIPImageProcessorFast.from_pretrained(url)
+            if "blip" in img_model_name.lower():
+                processor = BlipImageProcessorFast.from_pretrained(img_model_name)
+            elif "clip" in img_model_name.lower():
+                processor = CLIPImageProcessorFast.from_pretrained(img_model_name)
         except ImgProcessorNotFound:
             log.exception(
-                f"Processor not found for: {url} in Hugging Face Directory"
+                f"Processor not found for: {img_model_name} in Hugging Face Directory"
             )
         return processor
 
 
-    def _load_txt_token(self, url: str) -> AutoTokenizer:
+    def _load_txt_token(self, txt_token_name: str) -> AutoTokenizer:
         """
         Loads the text tokenizer and returns it
 
@@ -104,11 +104,11 @@ class CustomImageDataset(Dataset):
         """
         try:
             tokenizer = AutoTokenizer.from_pretrained(
-                url, padding_side="left", bos_token="<BOS>", eos_token="<EOS>"
+                txt_token_name, padding_side="left", bos_token="<BOS>", eos_token="<EOS>"
             )
         except TxtTokenizerNotFound:
             log.exception(
-                f"Tokenizer not found for: {url} in Hugging Face Directory"
+                f"Tokenizer not found for: {txt_token_name} in Hugging Face Directory"
             )
         return tokenizer
 
