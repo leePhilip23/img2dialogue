@@ -1,11 +1,26 @@
-name: black-action
-on: [push, pull_request]
+name: Black Lint Check
+
+on:
+  push:
+    paths:
+      - '**/*.py'
+  pull_request:
+    paths:
+      - '**/*.py'
+
 jobs:
-  linter_name:
-    name: runner / black formatter
+  black:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
-      - uses: datadog/action-py-black-formatter@v2.1
+      - uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
         with:
-          check_mode: "true"
+          python-version: '3.11'
+
+      - name: Install Black
+        run: pip install black
+
+      - name: Check formatting with Black
+        run: black --check --diff .
