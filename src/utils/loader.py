@@ -1,4 +1,5 @@
 import torch
+from torch import Tensor
 from typing import Any
 from PIL import Image
 from torch.utils.data import Dataset
@@ -66,22 +67,22 @@ class CustomImageDataset(Dataset):
         return tokenizer
 
 
-    def _process_img(self, img: Image) -> torch.tensor:
+    def _process_img(self, img: Image) -> Tensor:
         return self.img_processor(img).pixel_values[0]
 
 
-    def _process_txt(self, txt: list[list[str]]) -> tuple[list[int], list[int]]:
+    def _process_txt(self, txt: list[list[str]]) -> tuple[Tensor, Tensor]:
         dialogue = ' '.join(f"[Q] {q} [/Q] [A] {a} [/A]" for q, a in txt)
         dialogue = f"<BOS> {dialogue} <EOS>"
         inputs_masks =  self.txt_tokenizer(dialogue, padding=True, return_tensors="pt")
         return inputs_masks.input_ids[0], inputs_masks.attention_mask[0]
     
 
-    def __len__(self):
+    def __len__(self) -> int:
         return len(self._data)
     
     
-    def __getitem__(self, idx):
+    def __getitem__(self, idx) -> tuple[Tensor, Tensor, Tensor]:
         txt, img = self._data[idx]
         img_input = self._process_img(img)
         txt_input, txt_mask = self._process_txt(txt)
