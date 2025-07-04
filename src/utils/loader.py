@@ -15,7 +15,7 @@ from .exceptions import (
 from utils import log
 
 
-class CustomImageDataset(Dataset):
+class CustomDataset(Dataset):
     def __init__(
         self,
         split: str,
@@ -40,7 +40,7 @@ class CustomImageDataset(Dataset):
             HFDataNotFound
         """
         try:
-            data = load_dataset("HuggingFaceM4/VisDial")
+            data = load_dataset(url)
             data = data.remove_columns(
                 ["caption", "image_path", "global_image_id", "anns_id"]
             )
