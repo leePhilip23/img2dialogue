@@ -89,7 +89,6 @@ class Model(nn.Module):
         self, 
         img: Tensor, 
         input: Tensor,
-        mask: Tensor,
         labels: Tensor
     ) -> Tensor:
         """Model does forward prediction"""
