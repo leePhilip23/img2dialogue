@@ -6,9 +6,14 @@ import torch.nn.functional as F
 from torch import device
 from torch.utils.data import DataLoader
 from torch.optim import AdamW
+from src import log
 from .utils.loader import CustomDataset
 from .utils.model import Model
-from src import log
+from .utils.config import (
+    MasterConfig,
+    ModelConfig,
+    TrainingConfig
+)
 
 
 def _get_device() -> device:
@@ -20,7 +25,7 @@ def _get_device() -> device:
     return torch.device("cpu")
 
 
-def _get_model(cfg) -> Model:
+def _get_model(cfg: ModelConfig) -> Model:
     """Initializes the model with the available hardware"""
     device = _get_device()
     return Model(
@@ -29,7 +34,7 @@ def _get_model(cfg) -> Model:
     ).to(device)
     
 
-def _get_data(cfg) -> tuple[DataLoader, DataLoader]:
+def _get_data(cfg: MasterConfig) -> tuple[DataLoader, DataLoader]:
     """Loads the training and validation data from the dataset"""
     train_data = CustomDataset(
         cfg.config.train, 
@@ -61,7 +66,7 @@ def _get_data(cfg) -> tuple[DataLoader, DataLoader]:
 
 
 def _train_loop(
-    cfg, 
+    cfg: TrainingConfig, 
     epoch: int, 
     model: Model, 
     train_loader: DataLoader, 
@@ -99,10 +104,10 @@ def _train_loop(
 
 
 def _valid_loop(
-    cfg, 
-    epoch, 
-    model, 
-    valid_loader
+    cfg: TrainingConfig, 
+    epoch: int, 
+    model: Model, 
+    valid_loader: DataLoader
 ) -> float:
     """
     Runs one epoch of validation and logs the average batch loss
@@ -133,7 +138,7 @@ def _valid_loop(
 
 
 def run_training(
-    cfg, 
+    cfg: TrainingConfig, 
     train_loader: DataLoader, 
     valid_loader: DataLoader
 ) ->None:
@@ -181,7 +186,7 @@ def run_training(
 
 
 @hydra.main(config_path="conf", config_name="config.yml")
-def main(cfg):
+def main(cfg: MasterConfig):
     """Main function to run the training process"""
     train_loader, valid_loader = _get_data()
     run_training(cfg, train_loader, valid_loader)
