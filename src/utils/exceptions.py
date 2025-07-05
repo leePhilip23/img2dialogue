@@ -22,6 +22,6 @@ class ImgModelNotSupported(Exception):
     """Image Model is not supported in this module"""
     pass
 
-
 class LanguageModelNotFound(Exception):
     """Language Model not found in Hugging Face directory"""
+    pass

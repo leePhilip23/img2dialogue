@@ -18,12 +18,12 @@ class SpecialTokens(enum):
 class Model(nn.Module):
     def __init__(
         self, 
-        img_model_name: str = "Salesforce/blip-image-captioning-base", 
-        slm_name: str = "Qwen/Qwen3-0.6B"
+        img_model: str = "Salesforce/blip-image-captioning-base", 
+        small_lm: str = "Qwen/Qwen3-0.6B"
     ):
-        self.img_model = self._load_vision_model(img_model_name)
-        self.tokenizer = self._load_txt_token(slm_name)
-        self.slm = self._load_slm(slm_name)
+        self.img_model = self._load_vision_model(img_model)
+        self.tokenizer = self._load_txt_token(small_lm)
+        self.slm = self._load_slm(small_lm)
         self.word_embed = self.slm.model.get_input_embeddings()
 
         #TODO: Make config for this
@@ -76,7 +76,10 @@ class Model(nn.Module):
     def _load_slm(self, slm_name: str) -> AutoModelForCausalLM:
         """Loads the Small Language Model and returns it"""
         try:
-            return AutoModelForCausalLM.from_pretrained(slm_name)
+            return AutoModelForCausalLM.from_pretrained(
+                slm_name,
+                low_cpu_mem_usage=True
+            )
         except LanguageModelNotFound:
             log.error(f"Language Model: {slm_name} not found in Hugging Face directory")
             raise
@@ -86,7 +89,6 @@ class Model(nn.Module):
         self, 
         img: Tensor, 
         input: Tensor,
-        mask: Tensor,
         labels: Tensor
     ) -> Tensor:
         """Model does forward prediction"""
@@ -129,7 +131,6 @@ class Model(nn.Module):
             batch_first=True, 
             padding_side='left'
         )
-
 
         return self.slm(
             inputs_embeds=input_embeds,
