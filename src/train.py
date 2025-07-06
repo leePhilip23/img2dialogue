@@ -1,40 +1,15 @@
 import os
-import hydra
 import torch
-import torch.nn as nn
-import torch.nn.functional as F
-from torch import device
 from torch.utils.data import DataLoader
 from torch.optim import AdamW
 from src import log
+from src.main import get_device
 from .utils.loader import CustomDataset
 from .utils.model import Model
-from .utils.config import (
-    MasterConfig,
-    ModelConfig,
-    TrainingConfig
-)
-
-
-def _get_device() -> device:
-    """Sets the device based on hardware available"""
-    if torch.cuda.is_available():
-        return torch.device("cuda")
-    elif torch.backends.mps.is_available():
-        return torch.device("mps")
-    return torch.device("cpu")
-
-
-def _get_model(cfg: ModelConfig) -> Model:
-    """Initializes the model with the available hardware"""
-    device = _get_device()
-    return Model(
-        img_model=cfg.model.img_model,
-        small_lm=cfg.model.small_lm
-    ).to(device)
+from .utils.config import MainConfig, TrainingConfig
     
 
-def _get_data(cfg: MasterConfig) -> tuple[DataLoader, DataLoader]:
+def get_data(cfg: MainConfig) -> tuple[DataLoader, DataLoader]:
     """Loads the training and validation data from the dataset"""
     train_data = CustomDataset(
         cfg.config.train, 
@@ -87,6 +62,7 @@ def _train_loop(
     """
     model.train()
     running_loss = 0
+    device = get_device()
     for i, data in enumerate(train_loader):
         data = data.to(device)
         optimizer.zero_grad()
@@ -98,7 +74,7 @@ def _train_loop(
         # Calculate and print the average loss for the current batch
         avg_loss = running_loss / (i + 1) 
         log.info(f"Epoch {epoch + 1}/{cfg.training.epochs}, Batch {i+1}/{len(train_loader)}, Average Loss: {avg_loss:.4f}")
-        log.info("="*50)
+        log.info("=" * 50)
 
     return round(running_loss / len(train_loader), 3)
 
@@ -123,6 +99,7 @@ def _valid_loop(
     """
     model.eval()
     running_loss = 0
+    device = get_device()
     with torch.no_grad():
         for i, data in enumerate(valid_loader):
             data = data.to(device)
@@ -132,7 +109,7 @@ def _valid_loop(
             # Calculate and print the average loss for the current batch
             avg_loss = running_loss / (i + 1)
             log.info(f"Epoch {epoch + 1}/{cfg.training.epochs}, Batch {i+1}/{len(valid_loader)}, Average Loss: {avg_loss:.4f}")
-            log.info("="*50)
+            log.info("=" * 50)
 
     return round(running_loss / len(valid_loader), 3)
 
@@ -140,7 +117,8 @@ def _valid_loop(
 def run_training(
     cfg: TrainingConfig, 
     train_loader: DataLoader, 
-    valid_loader: DataLoader
+    valid_loader: DataLoader,
+    model: Model
 ) ->None:
     """
     Trains the model using the provided training and validation DataLoaders
@@ -151,14 +129,10 @@ def run_training(
         train_loader (DataLoader): DataLoader for the training dataset
         valid_loader (DataLoader): DataLoader for the validation dataset
     """
-
-    model = _get_model()
-    optimizer = AdamW(model.parameters(), lr=cfg.training.lr)
-    
-
-    best_val_loss = float('inf')
+    patience = 3
     patience_counter = 0
-    patience = 3  
+    best_val_loss = float('inf')
+    optimizer = AdamW(model.parameters(), lr=cfg.training.lr)  
 
     # Model Training loop
     for epoch in range(cfg.training.epochs):
@@ -183,14 +157,3 @@ def run_training(
             if patience_counter >= patience:
                 log.info(f"Early stopping triggered after {patience} epochs with no improvement.")
                 break
-
-
-@hydra.main(config_path="conf", config_name="config.yml")
-def main(cfg: MasterConfig):
-    """Main function to run the training process"""
-    train_loader, valid_loader = _get_data()
-    run_training(cfg, train_loader, valid_loader)
-
-    
-if __name__ == '__main__':
-    main()
