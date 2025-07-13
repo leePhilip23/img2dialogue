@@ -1,6 +1,6 @@
 .venv
 .vscode
-outputs
+**/outputs/
 notebooks
 .DS_Store
 __pycache__
