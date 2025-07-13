@@ -32,22 +32,21 @@ class CustomDataset(Dataset):
 
         Args:
             url (str): Directory of Hugging Face dataset
-        
         Returns: 
             DatasetDict: Dataset downloaded from Hugging Face
-
         Raises:
             HFDataNotFound
         """
         try:
-            data = load_dataset(url)
+            data = load_dataset(url, split=split)
             data = data.remove_columns(
                 ["caption", "image_path", "global_image_id", "anns_id"]
             )
+            data_list = [dict(example) for example in data]
         except HuggingFaceDataNotFound:
             log.error(f"Dataset {url} not found")
             raise
-        return data[split]
+        return data_list
 
 
     def _load_img_process(self, img_model_name: str) -> BlipImageProcessorFast | CLIPImageProcessorFast:
@@ -55,11 +54,9 @@ class CustomDataset(Dataset):
         Loads the image processor and returns it
 
         Args:
-            url (str): Directory of Hugging Face image processor
-        
+            url (str): Directory of Hugging Face image processor 
         Returns: 
             BlipImageProcessorFast | CLIPImageProcessorFast: Image Processor downloaded from Hugging Face
-
         Raises:
             ImgProcessorNotFound
         """
@@ -68,9 +65,8 @@ class CustomDataset(Dataset):
                 return BlipImageProcessorFast.from_pretrained(img_model_name)
             elif 'clip' in img_model_name.lower():
                 return CLIPImageProcessorFast.from_pretrained(img_model_name)
-            else:
-                log.error(f"Processor: {img_model_name} is not a valid choice")
-                raise ImgProcessorNotSupported("Processor type is not among the supported choices")
+            log.error(f"Processor: {img_model_name} is not a valid choice")
+            raise ImgProcessorNotSupported("Processor type is not among the supported choices")
         except ImgProcessorNotFound:
             log.error(f"Image Processor: {img_model_name} is not found in HF repository")
             raise
@@ -88,7 +84,6 @@ class CustomDataset(Dataset):
 
         Args:
             txt (list[list[str]]): Each matrix row is a question and answer
-
         Returns:
             tuple[Tensor, Tensor]: Preprocessed text and attention masks to
                                    prevent gradient calculations for padding

@@ -1,4 +1,4 @@
-import enum
+from enum import Enum
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -8,7 +8,7 @@ from transformers import AutoTokenizer, Blip2VisionModel, CLIPVisionModel, AutoM
 from .exceptions import ImgModelNotSupported, ImgModelNotFound, LanguageModelNotFound, TxtTokenizerNotFound
 
 
-class SpecialTokens(enum):
+class SpecialTokens(Enum):
     """All special tokens used for model"""
     BOS: str = "<BOS>"
     EOS: str = "<EOS>"
@@ -21,6 +21,7 @@ class Model(nn.Module):
         img_model: str = "Salesforce/blip-image-captioning-base", 
         small_lm: str = "Qwen/Qwen3-0.6B"
     ):
+        super(Model, self).__init__()
         self.img_model = self._load_vision_model(img_model)
         self.tokenizer = self._load_txt_token(small_lm)
         self.slm = self._load_slm(small_lm)
@@ -31,30 +32,17 @@ class Model(nn.Module):
 
 
     def _load_txt_token(self, token_name: str) -> AutoTokenizer:
-        """
-        Loads the text tokenizer and returns it
-
-        Args:
-            url (str): Directory of Hugging Face Tokenizer
-        
-        Returns: 
-            AutoTokenizer: Tokenizer downloaded from Hugging Face
-
-        Raises:
-            TxtTokenizerNotFound
-        """
+        """Loads the text tokenizer and returns it"""
         try:
             return AutoTokenizer.from_pretrained(
                 token_name, 
                 use_fast=True,
                 padding_side='left',
-                bos_token=SpecialTokens.BOS, 
-                eos_token=SpecialTokens.EOS
+                bos_token=SpecialTokens.BOS.value, 
+                eos_token=SpecialTokens.EOS.value
             )
         except TxtTokenizerNotFound:
-            log.error(
-                f"Tokenizer not found for: {token_name} in Hugging Face Directory"
-            )
+            log.error(f"Tokenizer not found for: {token_name} in Hugging Face Directory")
             raise
 
     
@@ -83,22 +71,51 @@ class Model(nn.Module):
         except LanguageModelNotFound:
             log.error(f"Language Model: {slm_name} not found in Hugging Face directory")
             raise
-            
 
-    def forward(
+
+    def _single_features(
         self, 
-        img: Tensor, 
-        input: Tensor,
-        labels: Tensor
-    ) -> Tensor:
-        """Model does forward prediction"""
-        pooled_tensor = self.img_model(img)
-        img_feature = self.slm_projector(pooled_tensor)
+        bos: Tensor, 
+        img_feature: Tensor,
+        tokens: Tensor
+    ) -> tuple[Tensor, Tensor]:
+        """
+        Calculates features for BOS token, input text tokens and combines
+        them with the image features to provide model input.
+        """
+        bos_token = self.word_embed(bos)
+        input_tokens = self.word_embed(tokens)
+        comb_features = torch.cat((bos_token, img_feature, input_tokens), dim=0)
+        return comb_features, tokens.attention_masks
 
-        bos_input = self.tokenizer(SpecialTokens.BOS).input_ids
-        tok_inputs = self.tokenizer(input)
-        batch_outputs = self.tokenizer(labels).input_ids
+    
+    def _batch_features(
+        self, 
+        bos_input: Tensor,
+        img_feature: Tensor, 
+        tok_inputs: Tensor, 
+        outputs: Tensor
+    ) -> tuple[
+            list[Tensor], 
+            list[Tensor], 
+            list[Tensor]
+        ]:
+        """
+        Creates data batches for batch inference. This requires concatenation of image
+        and text features as well as padding for each row of data.
 
+        Args:
+        bos_input (Tensor): BOS tokens for each item
+        tok_inputs (Tensor): Tokenized input sequences
+        img_feature (Tensor): Image features to concatenate
+        outputs (Tensor): Target output sequences
+
+        Returns:
+            tuple[list[Tensor], list[Tensor], list[Tensor]]:
+                - batch_inputs: Concatenated BOS, input tokens, and image features
+                - batch_masks: Attention masks
+                - batch_outputs: Target output sequences
+        """
         batch_inputs = []
         batch_outputs = []
         batch_masks = []
@@ -106,28 +123,52 @@ class Model(nn.Module):
         # Append concatenated embeddings for each batch
         for row in range(len(tok_inputs)):
             bos_token = self.word_embed(bos_input)
-            input_tokens = self.word_embed(torch.as_tensor(tok_inputs.input_ids[row]))
-            output_tokens = self.word_embed(torch.as_tensor(batch_outputs.input_ids[row]))
-            comb_features = torch.cat((bos_token, img_feature, input_tokens), dim=0)
-            batch_inputs.append(comb_features)
-            batch_outputs.append(output_tokens)
-            batch_masks.append(tok_inputs.attention_masks[row])
+            input_ids = torch.as_tensor(tok_inputs[row].unsqueeze(0))
+            output_ids = torch.as_tensor(outputs[row].unsqueeze(0))
 
+            comb_features, mask = self._single_features(bos_token, img_feature, input_ids)
+            batch_inputs.append(comb_features)
+            batch_outputs.append(output_ids)
+            batch_masks.append(mask[row])
+
+        return batch_inputs, batch_masks, batch_outputs
+            
+
+    def forward(
+        self, 
+        img: Tensor, 
+        input: Tensor,
+        labels: Tensor,
+        batch_predict: bool = True
+    ) -> Tensor:
+        """Model does forward prediction"""
+
+        pooled_tensor = self.img_model(img)
+        img_feature = self.slm_projector(pooled_tensor)
+
+        bos = self.tokenizer(SpecialTokens.BOS).input_ids
+        tokens = self.tokenizer(input).input_ids
+        outputs = self.tokenizer(labels).input_ids
+
+        if batch_predict:
+            inputs, masks, outputs = self._batch_features(bos, tokens, img_feature, outputs)
+        else:
+            inputs, masks = self._single_features(bos, tokens, img_feature, outputs)
 
         # Pad all combined embeddings
         input_embeds = nn.utils.rnn.pad_sequence(
-            batch_inputs, 
+            inputs, 
             batch_first=True, 
             padding_side='left'
         )
         attention_mask = nn.utils.rnn.pad_sequence(
-            batch_masks, 
+            masks, 
             batch_first=True, 
             padding_side='left', 
             padding_value=SpecialTokens.IGNORE_TOKEN
         )
         labels = nn.utils.rnn.pad_sequence(
-            batch_outputs, 
+            outputs, 
             batch_first=True, 
             padding_side='left'
         )

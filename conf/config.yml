@@ -1,5 +1,0 @@
-defaults:
-  - model: model
-  - dataloaders: data
-  - training: training
-  - _self_

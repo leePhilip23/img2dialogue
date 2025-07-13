@@ -1,0 +1,14 @@
+data_config:
+  path: HuggingFaceM4/VisDial
+  train: train
+  valid: validation
+data_train:
+  batch_size: 8
+  num_workers: 4
+  pin_memory: true
+  shuffle: true
+data_valid:
+  batch_size: 8
+  num_workers: 4
+  pin_memory: true
+  shuffle: false

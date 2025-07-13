@@ -1,3 +1,0 @@
-model:
-  img_model: Salesforce/blip-image-captioning-base
-  small_lm: Qwen/Qwen3-0.6B

@@ -32,7 +32,7 @@ class TrainingConfig:
     save_pth: str
 
 @dataclass
-class MasterConfig:
+class MainConfig:
     model: ModelConfig
     dataloaders: DataConfig
     training: TrainingConfig
