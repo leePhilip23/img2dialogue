@@ -1,0 +1,22 @@
+data_config:
+  path: HuggingFaceM4/VisDial
+  train: train
+  valid: valid
+data_train:
+  batch_size: 8
+  num_workers: 4
+  pin_memory: true
+  shuffle: true
+data_valid:
+  batch_size: 8
+  num_workers: 4
+  pin_memory: true
+  shuffle: false
+base_models:
+  img_model: Salesforce/blip-image-captioning-base
+  small_lm: Qwen/Qwen3-0.6B
+train_param:
+  epochs: 20
+  learning_rate: 1.0e-05
+  weight_decay: 0.05
+  save_pth: models/best_img2dialogue.pth

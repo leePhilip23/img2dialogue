@@ -2,39 +2,38 @@ import os
 import torch
 from torch.utils.data import DataLoader
 from torch.optim import AdamW
-from src import log
-from src.main import get_device
-from .utils.loader import CustomDataset
-from .utils.model import Model
-from .utils.config import MainConfig, TrainingConfig
+from utils import log
+from .loader import CustomDataset
+from .model import Model
+from .config import MainConfig, TrainingConfig
     
 
-def get_data(cfg: MainConfig) -> tuple[DataLoader, DataLoader]:
+def train_data(cfg: MainConfig) -> tuple[DataLoader, DataLoader]:
     """Loads the training and validation data from the dataset"""
     train_data = CustomDataset(
-        cfg.config.train, 
-        cfg.config.path, 
-        cfg.model.img_model
+        cfg.data_config.train, 
+        cfg.data_config.path, 
+        cfg.base_models.img_model
     )
     valid_data = CustomDataset(
-        cfg.config.valid, 
-        cfg.config.path, 
-        cfg.model.img_model
+        cfg.data_config.valid, 
+        cfg.data_config.path,
+        cfg.base_models.img_model
     )
 
     train_dataloader = DataLoader(
         train_data, 
-        batch_size=cfg.train.batch_size, 
-        num_workers=cfg.train.num_workers, 
-        pin_memory=cfg.train.pin_memory, 
-        shuffle=cfg.train.shuffle
+        batch_size=cfg.data_train.batch_size, 
+        num_workers=cfg.data_train.num_workers, 
+        pin_memory=cfg.data_train.pin_memory, 
+        shuffle=cfg.data_train.shuffle
     )
     valid_dataloader = DataLoader(
         valid_data, 
-        batch_size=cfg.valid.batch_size, 
-        num_workers=cfg.valid.num_workers, 
-        pin_memory=cfg.valid.pin_memory, 
-        shuffle=cfg.valid.shuffle
+        batch_size=cfg.data_valid.batch_size, 
+        num_workers=cfg.data_valid.num_workers, 
+        pin_memory=cfg.data_valid.pin_memory, 
+        shuffle=cfg.data_valid.shuffle
     )
 
     return train_dataloader, valid_dataloader
@@ -45,7 +44,8 @@ def _train_loop(
     epoch: int, 
     model: Model, 
     train_loader: DataLoader, 
-    optimizer: AdamW
+    optimizer: AdamW,
+    device: torch.device
 ) -> float:
     """
     Runs one epoch of training for the given model and logs the average batch loss
@@ -62,7 +62,6 @@ def _train_loop(
     """
     model.train()
     running_loss = 0
-    device = get_device()
     for i, data in enumerate(train_loader):
         data = data.to(device)
         optimizer.zero_grad()
@@ -73,7 +72,7 @@ def _train_loop(
 
         # Calculate and print the average loss for the current batch
         avg_loss = running_loss / (i + 1) 
-        log.info(f"Epoch {epoch + 1}/{cfg.training.epochs}, Batch {i+1}/{len(train_loader)}, Average Loss: {avg_loss:.4f}")
+        log.info(f"Epoch {epoch + 1}/{cfg.train_param.epochs}, Batch {i+1}/{len(train_loader)}, Average Loss: {avg_loss:.4f}")
         log.info("=" * 50)
 
     return round(running_loss / len(train_loader), 3)
@@ -83,7 +82,8 @@ def _valid_loop(
     cfg: TrainingConfig, 
     epoch: int, 
     model: Model, 
-    valid_loader: DataLoader
+    valid_loader: DataLoader,
+    device: torch.device
 ) -> float:
     """
     Runs one epoch of validation and logs the average batch loss
@@ -99,7 +99,6 @@ def _valid_loop(
     """
     model.eval()
     running_loss = 0
-    device = get_device()
     with torch.no_grad():
         for i, data in enumerate(valid_loader):
             data = data.to(device)
@@ -108,7 +107,7 @@ def _valid_loop(
 
             # Calculate and print the average loss for the current batch
             avg_loss = running_loss / (i + 1)
-            log.info(f"Epoch {epoch + 1}/{cfg.training.epochs}, Batch {i+1}/{len(valid_loader)}, Average Loss: {avg_loss:.4f}")
+            log.info(f"Epoch {epoch + 1}/{cfg.train_param.epochs}, Batch {i+1}/{len(valid_loader)}, Average Loss: {avg_loss:.4f}")
             log.info("=" * 50)
 
     return round(running_loss / len(valid_loader), 3)
@@ -118,8 +117,9 @@ def run_training(
     cfg: TrainingConfig, 
     train_loader: DataLoader, 
     valid_loader: DataLoader,
-    model: Model
-) ->None:
+    model: Model,
+    device: torch.device
+) -> None:
     """
     Trains the model using the provided training and validation DataLoaders
     Handles training, validation, early stopping, and model checkpoint saving
@@ -132,15 +132,19 @@ def run_training(
     patience = 3
     patience_counter = 0
     best_val_loss = float('inf')
-    optimizer = AdamW(model.parameters(), lr=cfg.training.lr)  
+    optimizer = AdamW(
+        model.parameters(), 
+        lr=cfg.train_param.learning_rate, 
+        weight_decay=cfg.train_param.weight_decay
+    )  
 
     # Model Training loop
-    for epoch in range(cfg.training.epochs):
-        train_loss = _train_loop(cfg, epoch, model, train_loader, optimizer)
+    for epoch in range(cfg.train_param.epochs):
+        train_loss = _train_loop(cfg, epoch, model, train_loader, optimizer, device)
         log.info(f"Training Loss: {train_loss}")
         
 
-        val_loss = _valid_loop(cfg, epoch, model, valid_loader)
+        val_loss = _valid_loop(cfg, epoch, model, valid_loader, device)
         log.info(f"Validation Loss: {val_loss}")
 
         # Early stopping condition
@@ -149,7 +153,7 @@ def run_training(
             patience_counter = 0 
             
             # Save the best model
-            best_model_path = os.path.join(cfg.training.save_pth)
+            best_model_path = os.path.join(cfg.train_param.save_pth)
             torch.save(model.state_dict(), best_model_path)
             log.info(f"Epoch {epoch+1}: Validation loss improved, saving best model.")
         else:
