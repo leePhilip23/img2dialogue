@@ -8,12 +8,10 @@ from utils.config import MainConfig, ModelConfig
 
 def get_device() -> torch.device:
     """Sets the device based on hardware available"""
-    """
     if torch.cuda.is_available():
         return torch.device("cuda")
     elif torch.backends.mps.is_available():
         return torch.device("mps")
-    """
     return torch.device("cpu")
 
 
@@ -29,7 +27,6 @@ import sys
 @hydra.main(version_base=None, config_path="../conf", config_name="config")
 def main(cfg: MainConfig, train_val: str = "train"):
     """Main function to run the training process"""
-    print(cfg)
     device = get_device()
     model = get_model(cfg, device)
     if train_val == "train":

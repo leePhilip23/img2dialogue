@@ -28,10 +28,10 @@ def test_data(cfg: MainConfig) -> tuple[DataLoader, DataLoader]:
 def _run_predict(
     cfg: TrainingConfig, 
     test_loader: DataLoader,
-    model: Model
+    model: Model,
+    device: torch.device
 ) -> None:
     running_loss = 0
-    device = get_device()
     model.eval()
     with torch.no_grad():
         for data in test_loader:
