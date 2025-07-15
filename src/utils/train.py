@@ -72,8 +72,7 @@ def _train_loop(
 
         # Calculate and print the average loss for the current batch
         avg_loss = running_loss / (i + 1) 
-        log.info(f"Epoch {epoch + 1}/{cfg.train_param.epochs}, Batch {i+1}/{len(train_loader)}, Average Loss: {avg_loss:.4f}")
-        log.info("=" * 50)
+        log.info(f"Epoch {epoch + 1}/{cfg.train_param.epochs}, Batch {i+1}/{len(train_loader)}, Avg Loss: {avg_loss:.4f}")
 
     return round(running_loss / len(train_loader), 3)
 
@@ -107,8 +106,7 @@ def _valid_loop(
 
             # Calculate and print the average loss for the current batch
             avg_loss = running_loss / (i + 1)
-            log.info(f"Epoch {epoch + 1}/{cfg.train_param.epochs}, Batch {i+1}/{len(valid_loader)}, Average Loss: {avg_loss:.4f}")
-            log.info("=" * 50)
+            log.info(f"Epoch {epoch + 1}/{cfg.train_param.epochs}, Batch {i+1}/{len(valid_loader)}, Avg Loss: {avg_loss:.4f}")
 
     return round(running_loss / len(valid_loader), 3)
 
@@ -130,7 +128,7 @@ def run_training(
         valid_loader (DataLoader): DataLoader for the validation dataset
     """
     patience = 3
-    patience_counter = 0
+    patience_count = 0
     best_val_loss = float('inf')
     optimizer = AdamW(
         model.parameters(), 
@@ -141,23 +139,22 @@ def run_training(
     # Model Training loop
     for epoch in range(cfg.train_param.epochs):
         train_loss = _train_loop(cfg, epoch, model, train_loader, optimizer, device)
-        log.info(f"Training Loss: {train_loss}")
+        log.info(f"Epoch {epoch} Avg Training Loss: {train_loss:.4f}")
         
 
         val_loss = _valid_loop(cfg, epoch, model, valid_loader, device)
-        log.info(f"Validation Loss: {val_loss}")
+        log.info(f"Epoch {epoch} Avg Validation Loss: {val_loss:.4f}")
 
         # Early stopping condition
         if val_loss < best_val_loss:
             best_val_loss = val_loss
-            patience_counter = 0 
+            patience_count = 0 
             
             # Save the best model
-            best_model_path = os.path.join(cfg.train_param.save_pth)
-            torch.save(model.state_dict(), best_model_path)
+            torch.save(model.state_dict(), os.path.join(cfg.train_param.save_pth, f"best_model_epoch_{epoch+1}.pth"))
             log.info(f"Epoch {epoch+1}: Validation loss improved, saving best model.")
         else:
             patience_counter += 1
-            if patience_counter >= patience:
+            if patience_count >= patience:
                 log.info(f"Early stopping triggered after {patience} epochs with no improvement.")
                 break
