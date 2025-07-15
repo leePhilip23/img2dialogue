@@ -22,10 +22,9 @@ def get_model(cfg: ModelConfig, device: str) -> Model:
         small_lm=cfg.base_models.slm
     ).to(device)
 
-import sys
 
 @hydra.main(version_base=None, config_path="../conf", config_name="config")
-def main(cfg: MainConfig, train_val: str = "train"):
+def main(cfg: MainConfig, train_val: str = "train") -> None:
     """Main function to run the training process"""
     device = get_device()
     model = get_model(cfg, device)
@@ -36,7 +35,6 @@ def main(cfg: MainConfig, train_val: str = "train"):
         test_loader = test_data(cfg)
         run_inference(cfg, test_loader, model, device)
         
-
 
 if __name__ == '__main__':
     main()

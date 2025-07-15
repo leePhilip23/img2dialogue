@@ -1,6 +1,6 @@
 import random
 from torch import Tensor
-from PIL import Image
+from PIL.Image import Image
 from torch.utils.data import Dataset
 from datasets import load_dataset, DatasetDict
 from transformers import (
@@ -22,8 +22,36 @@ class CustomDataset(Dataset):
         data_name: str = "HuggingFaceM4/VisDial",
         img_process: str = "Salesforce/blip-image-captioning-base"
     ):
-        self._data = self._load_data_hf(data_name, split)
         self.img_processor = self._load_img_process(img_process)
+        self._data = self._load_data_hf(data_name, split)
+
+
+    
+    def _preprocess_data(self, data: DatasetDict) -> list[tuple[tuple[str], Image]]:
+        """
+        Preprocesses the data by extracting questions, answers, and images.
+        Returns a list of tuples containing question-answer pairs and the image.
+
+        Args:
+            data (DatasetDict): Dataset downloaded from Hugging Face
+        Returns:
+            list[tuple[tupe[str], Image]]: List of tuples with question-answer pairs and image
+        """
+        processed_data = []
+        for item in data:
+            qa_pairs = []
+            for qa in item["dialog"]:
+                # Ensure that both question and answer are non-empty
+                if not qa[0] or not qa[1]:
+                    continue
+                
+                txt = f"[Q] {qa[0]} [/Q] {qa[1]} <EOS>"
+                qa_pairs.append(txt)
+            
+            image = self._process_img(item["image"])    
+            processed_data.append((qa_pairs, image))
+        print(f"Processed {len(processed_data)} data points from the dataset.")
+        return processed_data
 
 
     def _load_data_hf(self, url: str, split: str) -> DatasetDict:
@@ -38,15 +66,20 @@ class CustomDataset(Dataset):
             HFDataNotFound
         """
         try:
-            data = load_dataset(url, split=split)
+            data = load_dataset(url, split=split, num_proc=1, keep_in_memory=False)
             data = data.remove_columns(
-                ["caption", "image_path", "global_image_id", "anns_id"]
+                [
+                    "caption", 
+                    "image_path", 
+                    "global_image_id", 
+                    "anns_id"
+                ]
             )
-            data_list = [dict(example) for example in data]
+            preprocess_data = self._preprocess_data(data)
         except HuggingFaceDataNotFound:
             log.error(f"Dataset {url} not found")
             raise
-        return data_list
+        return preprocess_data
 
 
     def _load_img_process(self, img_model_name: str) -> BlipImageProcessorFast | CLIPImageProcessorFast:
@@ -77,7 +110,7 @@ class CustomDataset(Dataset):
         return self.img_processor(img).pixel_values[0]
 
 
-    def _process_txt(self, txt: list[list[str]]) -> tuple[Tensor, Tensor]:
+    def _random_txt(self, txt: list[list[str]]) -> tuple[Tensor, Tensor]:
         """
         Preprocesses by adding special tokens to each question and answer.
         Then it tokenizes the raw text.
@@ -89,7 +122,7 @@ class CustomDataset(Dataset):
                                    prevent gradient calculations for padding
         """
         r_index = random.randint(0, len(txt)-1)
-        return f"[Q] {txt[r_index][0]} [/Q] {txt[r_index][1]} <EOS>"
+        return txt[r_index]
     
 
     def __len__(self) -> int:
@@ -100,9 +133,8 @@ class CustomDataset(Dataset):
     def __getitem__(self, idx: int) -> dict[str: Tensor]:
         """Preprocesses each datapoint and returns image, text, and masking tensors"""
         txt, img = self._data[idx]
-        img_input = self._process_img(img)
-        txt_input =  self._process_txt(txt)
+        rand_txt = self._random_txt(txt)
         return {
-            "img": img_input, 
-            "txt": txt_input
+            "img": img, 
+            "txt": rand_txt
         }
