@@ -12,7 +12,7 @@ class SpecialTokens(Enum):
     """All special tokens used for model"""
     BOS: str = "<BOS>"
     EOS: str = "<EOS>"
-    IGNORE_TOKEN: int = -100
+    IGNORE: int = -100
 
 
 class Model(nn.Module):
@@ -146,7 +146,7 @@ class Model(nn.Module):
         pooled_tensor = self.img_model(img)
         img_feature = self.slm_projector(pooled_tensor)
 
-        bos = self.tokenizer(SpecialTokens.BOS).input_ids
+        bos = self.tokenizer(SpecialTokens.BOS.value).input_ids
         tokens = self.tokenizer(input).input_ids
         outputs = self.tokenizer(labels).input_ids
 
@@ -159,18 +159,20 @@ class Model(nn.Module):
         input_embeds = nn.utils.rnn.pad_sequence(
             inputs, 
             batch_first=True, 
-            padding_side='left'
+            padding_side='left',
+            padding_value=0
         )
         attention_mask = nn.utils.rnn.pad_sequence(
             masks, 
             batch_first=True, 
             padding_side='left', 
-            padding_value=SpecialTokens.IGNORE_TOKEN
+            padding_value=SpecialTokens.IGNORE.value
         )
         labels = nn.utils.rnn.pad_sequence(
             outputs, 
             batch_first=True, 
-            padding_side='left'
+            padding_side='left',
+            padding_value=0
         )
 
         return self.slm(
