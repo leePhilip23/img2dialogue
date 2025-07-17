@@ -38,19 +38,18 @@ class CustomDataset(Dataset):
             list[tuple[tupe[str], Image]]: List of tuples with question-answer pairs and image
         """
         processed_data = []
-        for item in data:
-            qa_pairs = []
-            for qa in item["dialog"]:
-                # Ensure that both question and answer are non-empty
-                if not qa[0] or not qa[1]:
-                    continue
-                
-                txt = f"[Q] {qa[0]} [/Q] {qa[1]} <EOS>"
-                qa_pairs.append(txt)
+        count = 1
+        for i, item in enumerate(data):
+            if count % 100 == 0:
+                break
             
-            image = self._process_img(item["image"])    
-            processed_data.append((qa_pairs, image))
-        print(f"Processed {len(processed_data)} data points from the dataset.")
+            txt, label = self._process_txt(item["dialog"])
+            if not txt or not label:
+                continue
+
+            image = self._process_img(item["image"])   
+            processed_data.append((image, txt, label))
+            count += 1
         return processed_data
 
 
@@ -110,7 +109,7 @@ class CustomDataset(Dataset):
         return self.img_processor(img).pixel_values[0]
 
 
-    def _random_txt(self, txt: list[list[str]]) -> tuple[Tensor, Tensor]:
+    def _process_txt(self, txt: list[list[str]]) -> tuple[Tensor, Tensor]:
         """
         Preprocesses by adding special tokens to each question and answer.
         Then it tokenizes the raw text.
@@ -121,8 +120,21 @@ class CustomDataset(Dataset):
             tuple[Tensor, Tensor]: Preprocessed text and attention masks to
                                    prevent gradient calculations for padding
         """
-        r_index = random.randint(0, len(txt)-1)
-        return txt[r_index]
+        qa_pairs, last_ans = "", ""
+        for i, qa in enumerate(txt):
+            # Ensure that both question and answer are non-empty
+            if not qa[0] or not qa[1]:
+                continue
+            
+            #TODO: Add special case where last qa doesnt pass above condition
+            #TODO: Add test cases to validate data preprocessing
+            if i+1 >= len(txt):
+                qa_pairs += f"[Q] {qa[0]} [/Q] <EOS>"
+            else:
+                qa_pairs += f"[Q] {qa[0]} [/Q] {qa[1]} "
+            last_ans = qa[1]
+            
+        return qa_pairs, last_ans
     
 
     def __len__(self) -> int:
@@ -132,9 +144,9 @@ class CustomDataset(Dataset):
 
     def __getitem__(self, idx: int) -> dict[str: Tensor]:
         """Preprocesses each datapoint and returns image, text, and masking tensors"""
-        txt, img = self._data[idx]
-        rand_txt = self._random_txt(txt)
+        img, txt, label = self._data[idx]
         return {
             "img": img, 
-            "txt": rand_txt
+            "txt": txt,
+            "label": label
         }
