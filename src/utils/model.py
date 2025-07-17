@@ -12,7 +12,9 @@ class SpecialTokens(Enum):
     """All special tokens used for model"""
     BOS: str = "<BOS>"
     EOS: str = "<EOS>"
+    MAX_LEN: int = 512
     IGNORE: int = -100
+    PAD: int = 0
 
 
 class Model(nn.Module):
@@ -74,27 +76,27 @@ class Model(nn.Module):
 
 
     def _single_features(
-        self, 
-        bos: Tensor, 
+        self,
+        bos_feature : Tensor,
         img_feature: Tensor,
+        att_masks: list[int],
         tokens: Tensor
     ) -> tuple[Tensor, Tensor]:
         """
-        Calculates features for BOS token, input text tokens and combines
+        Calculates features for input text tokens and combines
         them with the image features to provide model input.
         """
-        bos_token = self.word_embed(bos)
-        input_tokens = self.word_embed(tokens)
-        comb_features = torch.cat((bos_token, img_feature, input_tokens), dim=0)
-        return comb_features, tokens.attention_masks
+        input_masks = torch.as_tensor([1, 1] + att_masks)
+        token_feats = self.word_embed(tokens)
+        cat_inputs = torch.cat((bos_feature, img_feature, token_feats), dim=0)
+        return input_masks, cat_inputs
 
     
     def _batch_features(
         self, 
-        bos_input: Tensor,
+        bos_feature: Tensor,
         img_feature: Tensor, 
-        tok_inputs: Tensor, 
-        outputs: Tensor
+        tok_inputs: dict[str, list[int]]
     ) -> tuple[
             list[Tensor], 
             list[Tensor], 
@@ -117,23 +119,63 @@ class Model(nn.Module):
                 - batch_outputs: Target output sequences
         """
         batch_inputs = []
-        batch_outputs = []
         batch_masks = []
 
         # Append concatenated embeddings for each batch
-        for row in range(len(tok_inputs)):
-            bos_token = self.word_embed(bos_input)
-            input_ids = torch.as_tensor(tok_inputs[row].unsqueeze(0))
-            output_ids = torch.as_tensor(outputs[row].unsqueeze(0))
+        for row in range(len(tok_inputs.input_ids)):
+            mask, input_feats = self._single_features(
+                bos_feature.squeeze(0),
+                img_feature[row].unsqueeze(0),
+                tok_inputs.attention_mask[row],
+                torch.as_tensor(tok_inputs.input_ids[row])
+            )
 
-            comb_features, mask = self._single_features(bos_token, img_feature, input_ids)
-            batch_inputs.append(comb_features)
-            batch_outputs.append(output_ids)
-            batch_masks.append(mask[row])
+            batch_masks.append(mask)
+            batch_inputs.append(input_feats)
 
-        return batch_inputs, batch_masks, batch_outputs
+        return batch_masks, batch_inputs
+        
+    
+    def _padding(self, masks, inputs, outputs):
+        """
+        Pads the input and output tensors to the maximum length defined by SpecialTokens.MAX_LEN.
+        This is necessary for batch processing in transformers.
+
+        Args:
+            masks (list[Tensor]): List of attention masks for each input sequence
+            inputs (list[Tensor]): List of input feature tensors
+            outputs (list[Tensor]): List of output feature tensors
+
+        Returns:
+            tuple[Tensor, Tensor, Tensor]: Padded attention masks, input features, and output features
+        """
+        padded_masks = nn.utils.rnn.pad_sequence(
+            masks, 
+            batch_first=True, 
+            padding_side='left', 
+            padding_value=SpecialTokens.PAD.value
+        )
+        padded_inputs = nn.utils.rnn.pad_sequence(
+            inputs, 
+            batch_first=True, 
+            padding_side='left', 
+            padding_value=SpecialTokens.PAD.value
+        )
+
+        padded = []
+        for t in outputs:
+            pad_len = padded_inputs.size(1) - len(t)
+            padded_tensor = F.pad(
+                torch.as_tensor(t), 
+                (pad_len, 0),
+                value=SpecialTokens.IGNORE.value
+            )
+            padded.append(padded_tensor)
+        padded_outputs = torch.stack(padded, dim=0)
+
+        return padded_masks, padded_inputs, padded_outputs
+        
             
-
     def forward(
         self, 
         img: Tensor, 
@@ -143,37 +185,21 @@ class Model(nn.Module):
     ) -> Tensor:
         """Model does forward prediction"""
 
-        pooled_tensor = self.img_model(img)
+        pooled_tensor = self.img_model(img).pooler_output
         img_feature = self.slm_projector(pooled_tensor)
 
-        bos = self.tokenizer(SpecialTokens.BOS.value).input_ids
-        tokens = self.tokenizer(input).input_ids
-        outputs = self.tokenizer(labels).input_ids
+        bos = self.tokenizer(SpecialTokens.BOS.value, return_tensors='pt').input_ids
+        bos_feature = self.word_embed(bos)
+
+        tokens = self.tokenizer(input, truncation=True)
+        outputs = self.tokenizer(labels, truncation=True)
 
         if batch_predict:
-            inputs, masks, outputs = self._batch_features(bos, tokens, img_feature, outputs)
+            masks, inputs = self._batch_features(bos_feature, img_feature, tokens)
         else:
-            inputs, masks = self._single_features(bos, tokens, img_feature, outputs)
+            masks, inputs = self._single_features(img_feature, tokens)
 
-        # Pad all combined embeddings
-        input_embeds = nn.utils.rnn.pad_sequence(
-            inputs, 
-            batch_first=True, 
-            padding_side='left',
-            padding_value=0
-        )
-        attention_mask = nn.utils.rnn.pad_sequence(
-            masks, 
-            batch_first=True, 
-            padding_side='left', 
-            padding_value=SpecialTokens.IGNORE.value
-        )
-        labels = nn.utils.rnn.pad_sequence(
-            outputs, 
-            batch_first=True, 
-            padding_side='left',
-            padding_value=0
-        )
+        attention_mask, input_embeds, labels = self._padding(masks, inputs, outputs.input_ids)
 
         return self.slm(
             inputs_embeds=input_embeds,
