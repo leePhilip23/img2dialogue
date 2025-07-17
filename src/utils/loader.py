@@ -38,11 +38,7 @@ class CustomDataset(Dataset):
             list[tuple[tupe[str], Image]]: List of tuples with question-answer pairs and image
         """
         processed_data = []
-        count = 1
-        for i, item in enumerate(data):
-            if count % 100 == 0:
-                break
-            
+        for i, item in enumerate(data):  
             txt, label = self._process_txt(item["dialog"])
             if not txt or not label:
                 continue
