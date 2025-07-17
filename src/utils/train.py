@@ -63,9 +63,9 @@ def _train_loop(
     model.train()
     running_loss = 0
     for i, data in enumerate(train_loader):
-        data = data.to(device)
+        img, txt, label = data["img"], data["txt"], data["label"]
         optimizer.zero_grad()
-        outputs = model(data)
+        outputs = model(img, txt, label)
         outputs.loss.backward()
         optimizer.step()
         running_loss += outputs.loss.item()
@@ -100,8 +100,8 @@ def _valid_loop(
     running_loss = 0
     with torch.no_grad():
         for i, data in enumerate(valid_loader):
-            data = data.to(device)
-            outputs = model(data)
+            img, txt, label = data["img"], data["txt"], data["label"]
+            outputs = model(img, txt, label)
             running_loss += outputs.loss.item()
 
             # Calculate and print the average loss for the current batch
