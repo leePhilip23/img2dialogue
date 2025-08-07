@@ -1,17 +1,32 @@
-from enum import Enum
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from enum import Enum
+from typing import Optional
 from torch import Tensor
-from utils import log
-from transformers import AutoTokenizer, Blip2VisionModel, CLIPVisionModel, AutoModelForCausalLM
-from .exceptions import ImgModelNotSupported, ImgModelNotFound, LanguageModelNotFound, TxtTokenizerNotFound
+from transformers import (
+    AutoTokenizer, 
+    Blip2VisionModel, 
+    CLIPVisionModel, 
+    AutoModelForCausalLM
+)
+from .logger import log
+from .exceptions import (
+    ImgModelNotSupported, 
+    ImgModelNotFound, 
+    LanguageModelNotFound, 
+    TxtTokenizerNotFound
+)
 
 
-class SpecialTokens(Enum):
+class Tokens(Enum):
     """All special tokens used for model"""
     BOS: str = "<BOS>"
     EOS: str = "<EOS>"
+    BEGIN_Q: str = "[Q]"
+    END_Q: str = "[/Q]"
+    BEGIN_A: str = "[A]"
+    END_A: str = "[/A]"
     MAX_LEN: int = 512
     IGNORE: int = -100
     PAD: int = 0
@@ -28,9 +43,7 @@ class Model(nn.Module):
         self.tokenizer = self._load_txt_token(small_lm)
         self.slm = self._load_slm(small_lm)
         self.word_embed = self.slm.model.get_input_embeddings()
-
-        #TODO: Make config for this
-        self.slm_projector = nn.Linear(768, 1024)
+        self.img_projector = nn.Linear(768, 1024)
 
 
     def _load_txt_token(self, token_name: str) -> AutoTokenizer:
@@ -40,14 +53,14 @@ class Model(nn.Module):
                 token_name, 
                 use_fast=True,
                 padding_side='left',
-                bos_token=SpecialTokens.BOS.value, 
-                eos_token=SpecialTokens.EOS.value
+                bos_token=Tokens.BOS.value, 
+                eos_token=Tokens.EOS.value
             )
         except TxtTokenizerNotFound:
             log.error(f"Tokenizer not found for: {token_name} in Hugging Face Directory")
             raise
 
-    
+
     def _load_vision_model(self, img_model_name: str) -> Blip2VisionModel | CLIPVisionModel:
         """Loads the vision model and returns it"""
         try:
@@ -62,7 +75,7 @@ class Model(nn.Module):
             log.error(f"Image Model: {img_model_name} is not found in Hugging Face")
             raise
 
-        
+
     def _load_slm(self, slm_name: str) -> AutoModelForCausalLM:
         """Loads the Small Language Model and returns it"""
         try:
@@ -70,12 +83,12 @@ class Model(nn.Module):
                 slm_name,
                 low_cpu_mem_usage=True
             )
-        except LanguageModelNotFound:
+        except LanguageModelNotFound as e:
             log.error(f"Language Model: {slm_name} not found in Hugging Face directory")
             raise
 
 
-    def _single_features(
+    def _single_feature(
         self,
         bos_feature : Tensor,
         img_feature: Tensor,
@@ -123,7 +136,7 @@ class Model(nn.Module):
 
         # Append concatenated embeddings for each batch
         for row in range(len(tok_inputs.input_ids)):
-            mask, input_feats = self._single_features(
+            mask, input_feats = self._single_feature(
                 bos_feature.squeeze(0),
                 img_feature[row].unsqueeze(0),
                 tok_inputs.attention_mask[row],
@@ -136,9 +149,13 @@ class Model(nn.Module):
         return batch_masks, batch_inputs
         
     
-    def _padding(self, masks, inputs, outputs):
+    def _padding(
+        self, 
+        masks: list[Tensor], 
+        inputs: list[Tensor], 
+        outputs: Optional[list]):
         """
-        Pads the input and output tensors to the maximum length defined by SpecialTokens.MAX_LEN.
+        Pads the input and output tensors to the maximum length defined by Tokens.MAX_LEN.
         This is necessary for batch processing in transformers.
 
         Args:
@@ -149,58 +166,92 @@ class Model(nn.Module):
         Returns:
             tuple[Tensor, Tensor, Tensor]: Padded attention masks, input features, and output features
         """
+
         padded_masks = nn.utils.rnn.pad_sequence(
             masks, 
             batch_first=True, 
             padding_side='left', 
-            padding_value=SpecialTokens.PAD.value
+            padding_value=Tokens.PAD.value
         )
         padded_inputs = nn.utils.rnn.pad_sequence(
             inputs, 
             batch_first=True, 
             padding_side='left', 
-            padding_value=SpecialTokens.PAD.value
+            padding_value=Tokens.PAD.value
         )
 
-        padded = []
-        for t in outputs:
-            pad_len = padded_inputs.size(1) - len(t)
-            padded_tensor = F.pad(
-                torch.as_tensor(t), 
-                (pad_len, 0),
-                value=SpecialTokens.IGNORE.value
-            )
-            padded.append(padded_tensor)
-        padded_outputs = torch.stack(padded, dim=0)
+        if outputs:
+            padded = []
+            for t in outputs:
+                pad_len = padded_inputs.size(1) - len(t)
+                padded_tensor = F.pad(
+                    torch.as_tensor(t), 
+                    (pad_len, 0),
+                    value=Tokens.IGNORE.value
+                )
+                padded.append(padded_tensor)
+            padded_outputs = torch.stack(padded, dim=0)
+            return padded_masks, padded_inputs, padded_outputs
 
-        return padded_masks, padded_inputs, padded_outputs
+        return padded_masks, padded_inputs
+    
+
+    def _run_model(
+        self, 
+        img: Tensor, 
+        input: str,
+        labels: Optional[str],
+        batch_predict: bool=True
+    ) -> dict:
+        """Model does forward prediction"""
+
+        pooled_tensor = self.img_model(img).pooler_output
+        img_feature = self.img_projector(pooled_tensor)
+
+        bos = self.tokenizer(Tokens.BOS.value, return_tensors='pt').input_ids
+        bos_feature = self.word_embed(bos)
+
+        tokens = self.tokenizer(input, truncation=True)
+
+        if batch_predict:
+            masks, inputs = self._batch_features(bos_feature, img_feature, tokens)
+        else:
+            masks, inputs = self._single_feature(img_feature, tokens)
+
+        if labels:
+            outputs = self.tokenizer(labels, truncation=True)
+            attention_mask, input_embeds, labels = self._padding(masks, inputs, outputs.input_ids)
+            return attention_mask, input_embeds, labels
+
+        attention_mask, input_embeds = self._padding(masks, inputs, None)
+        return attention_mask, input_embeds
+    
+
+    @torch.no_grad()
+    def evaluate(
+        self, 
+        img: Tensor, 
+        txt: Tensor,
+        batch_predict: bool=True,
+    ) -> dict:
+        attention_mask, input_embeds = self._run_model(img, txt, None, batch_predict)
+        return self.slm(
+            inputs_embeds=input_embeds,
+            attention_mask=attention_mask,
+            output_hidden_states=True,
+            use_cache=True,
+            return_dict=True
+        )
         
             
     def forward(
         self, 
         img: Tensor, 
-        input: Tensor,
+        txt: Tensor,
         labels: Tensor,
-        batch_predict: bool = True
-    ) -> Tensor:
-        """Model does forward prediction"""
-
-        pooled_tensor = self.img_model(img).pooler_output
-        img_feature = self.slm_projector(pooled_tensor)
-
-        bos = self.tokenizer(SpecialTokens.BOS.value, return_tensors='pt').input_ids
-        bos_feature = self.word_embed(bos)
-
-        tokens = self.tokenizer(input, truncation=True)
-        outputs = self.tokenizer(labels, truncation=True)
-
-        if batch_predict:
-            masks, inputs = self._batch_features(bos_feature, img_feature, tokens)
-        else:
-            masks, inputs = self._single_features(img_feature, tokens)
-
-        attention_mask, input_embeds, labels = self._padding(masks, inputs, outputs.input_ids)
-
+        batch_predict: bool=True
+    ) -> dict:
+        attention_mask, input_embeds, labels = self._run_model(img, txt, labels, batch_predict)
         return self.slm(
             inputs_embeds=input_embeds,
             attention_mask=attention_mask,
