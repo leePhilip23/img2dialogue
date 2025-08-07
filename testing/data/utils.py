@@ -2,9 +2,7 @@ import torch
 import torch.nn.functional as F
 from torch import Tensor
 from PIL.Image import Image
-from datasets import DatasetDict
 from transformers import CLIPProcessor, CLIPModel
-from conftest import sampled_data
 
 processor = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")
 model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32")
