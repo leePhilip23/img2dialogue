@@ -2,7 +2,7 @@ import os
 import torch
 from torch.utils.data import DataLoader
 from torch.optim import AdamW
-from utils import log
+from logger import log
 from .loader import CustomDataset
 from .model import Model
 from .config import MainConfig, TrainingConfig
@@ -63,7 +63,7 @@ def _train_loop(
     model.train()
     running_loss = 0
     for i, data in enumerate(train_loader):
-        img, txt, label = data["img"], data["txt"], data["label"]
+        img, txt, label = data["img"].to(device), data["txt"].to(device), data["label"].to(device)
         optimizer.zero_grad()
         outputs = model(img, txt, label)
         outputs.loss.backward()
@@ -98,15 +98,14 @@ def _valid_loop(
     """
     model.eval()
     running_loss = 0
-    with torch.no_grad():
-        for i, data in enumerate(valid_loader):
-            img, txt, label = data["img"], data["txt"], data["label"]
-            outputs = model(img, txt, label)
-            running_loss += outputs.loss.item()
+    for i, data in enumerate(valid_loader):
+        img, txt, label = data["img"].to(device), data["txt"].to(device), data["label"].to(device)
+        outputs = model(img, txt, label)
+        running_loss += outputs.loss.item()
 
-            # Calculate and print the average loss for the current batch
-            avg_loss = running_loss / (i + 1)
-            log.info(f"Epoch {epoch + 1}/{cfg.train_param.epochs}, Batch {i+1}/{len(valid_loader)}, Avg Loss: {avg_loss:.4f}")
+        # Calculate and print the average loss for the current batch
+        avg_loss = running_loss / (i + 1)
+        log.info(f"Epoch {epoch + 1}/{cfg.train_param.epochs}, Batch {i+1}/{len(valid_loader)}, Avg Loss: {avg_loss:.4f}")
 
     return round(running_loss / len(valid_loader), 3)
 
@@ -116,8 +115,10 @@ def run_training(
     train_loader: DataLoader, 
     valid_loader: DataLoader,
     model: Model,
-    device: torch.device
-) -> None:
+    device: torch.device,
+    num_epochs: int,
+    testing: bool = False
+) -> list | None:
     """
     Trains the model using the provided training and validation DataLoaders
     Handles training, validation, early stopping, and model checkpoint saving
@@ -135,15 +136,18 @@ def run_training(
         lr=cfg.train_param.learning_rate, 
         weight_decay=cfg.train_param.weight_decay
     )  
+    test_loss = []
 
     # Model Training loop
-    for epoch in range(cfg.train_param.epochs):
+    for epoch in range(num_epochs):
         train_loss = _train_loop(cfg, epoch, model, train_loader, optimizer, device)
         log.info(f"Epoch {epoch} Avg Training Loss: {train_loss:.4f}")
-        
 
         val_loss = _valid_loop(cfg, epoch, model, valid_loader, device)
         log.info(f"Epoch {epoch} Avg Validation Loss: {val_loss:.4f}")
+
+        if testing:
+            test_loss.append(train_loss)
 
         # Early stopping condition
         if val_loss < best_val_loss:
@@ -158,3 +162,6 @@ def run_training(
             if patience_count >= patience:
                 log.info(f"Early stopping triggered after {patience} epochs with no improvement.")
                 break
+
+    if testing:
+        return test_loss
