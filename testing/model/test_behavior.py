@@ -33,7 +33,7 @@ def test_invariance(img_url: str, txt_a: str, txt_b: str):
     cos_sim = F.cosine_similarity(out_a.mean(dim=1), out_b.mean(dim=1), dim=-1)
 
     # The hidden states should be similar in syntax and semantics
-    assert (cos_sim > 0.95).all(), "Invariance: embeddings are not semantically aligned enough"
+    assert (cos_sim.item() > 0.95).all(), "Invariance: embeddings are not semantically aligned enough"
 
 
 @pytest.mark.parametrize(
@@ -95,4 +95,4 @@ def test_mft(img_url: str, prompt: str, ground_truth: str):
     cos_sim = F.cosine_similarity(pred.mean(dim=1), ground_truth.mean(dim=1), dim=-1)
     
     # The output of model should be similar to ground truth
-    assert (cos_sim > 0.95).all(), "Minimum Functional Test: embeddings are not semantically aligned enough"
+    assert (cos_sim.item() > 0.95).all(), "Minimum Functional Test: embeddings are not semantically aligned enough"
