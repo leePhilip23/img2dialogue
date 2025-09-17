@@ -1,9 +1,7 @@
 import hydra
-import torch
 from utils.train import train_data, run_training
 from utils.inference import test_data, run_inference
-from utils.model import Model
-from utils.config import MainConfig, ModelConfig
+from utils.config import MainConfig
 from utils.specs import Retrieve
 
 

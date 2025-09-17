@@ -6,7 +6,7 @@ from transformers import (
     BlipImageProcessorFast,
     CLIPImageProcessorFast,
 )
-from src import log
+from .logger import log
 from .exceptions import (
     HuggingFaceDataNotFound,
     ImgProcessorNotSupported,
@@ -19,11 +19,10 @@ class CustomDataset(Dataset):
         self,
         split: str,
         data_name: str = "lmms-lab/LLaVA-NeXT-Data",
-        img_process: str = "Salesforce/blip-image-captioning-base"
+        img_process: str = "Salesforce/blip-image-captioning-base",
     ):
         self.img_processor = self._load_img_process(img_process)
         self._data = self._load_data_hf(data_name, split)
-
 
     def _load_data_hf(self, url: str, split: str) -> DatasetDict:
         """
@@ -31,49 +30,48 @@ class CustomDataset(Dataset):
 
         Args:
             url (str): Directory of Hugging Face dataset
-        Returns: 
+        Returns:
             DatasetDict: Dataset downloaded from Hugging Face
         Raises:
             HFDataNotFound
         """
         try:
-            data = load_dataset(url, split=split, num_proc=1, keep_in_memory=True, seed=None)
+            data = load_dataset(
+                url, split=split, num_proc=1, keep_in_memory=True, seed=None
+            )
             data = data.remove_columns(["id", "data_source"])
             preprocess_data = self._preprocess_data(data)
-        except HuggingFaceDataNotFound:
+        except HuggingFaceDataNotFound as e:
             log.error(f"Dataset {url} not found")
-            raise
+            raise e
         return preprocess_data
-
 
     def _load_img_process(self, img_model_name: str) -> BlipImageProcessorFast | CLIPImageProcessorFast:
         """
-        Loads the image processor and returns it
+        Loads the image processor and returns the image
 
         Args:
-            url (str): Directory of Hugging Face image processor 
-        Returns: 
+            url (str): Directory of Hugging Face image processor
+        Returns:
             BlipImageProcessorFast | CLIPImageProcessorFast: Image Processor downloaded from Hugging Face
         Raises:
             ImgProcessorNotFound
         """
         try:
-            if 'blip' in img_model_name.lower():
+            if "blip" in img_model_name.lower():
                 return BlipImageProcessorFast.from_pretrained(img_model_name)
-            elif 'clip' in img_model_name.lower():
+            elif "clip" in img_model_name.lower():
                 return CLIPImageProcessorFast.from_pretrained(img_model_name)
             else:
                 log.error(f"Processor: {img_model_name} is not a valid choice")
                 raise ImgProcessorNotSupported("Processor type is not among the supported choices")
-        except ImgProcessorNotFound:
+        except ImgProcessorNotFound as e:
             log.error(f"Image Processor: {img_model_name} is not found in HF repository")
-            raise
-
+            raise e
 
     def _process_img(self, img: Image) -> Tensor:
         """Returns preprocessed and normalized image from raw image"""
         return self.img_processor(img).pixel_values[0]
-
 
     def _process_txt(self, txt: dict[str, str]) -> tuple[str, str]:
         """
@@ -86,14 +84,13 @@ class CustomDataset(Dataset):
             tuple[str, str]: Preprocessed text and attention masks to
                                    prevent gradient calculations for padding
         """
-        qa_pairs = "<SOS> ", 
-        for i in range(len(txt)-1):
-            if txt[i]['from'] == "human":
+        qa_pairs = "<SOS> "
+        for i in range(len(txt) - 1):
+            if txt[i]["from"] == "human":
                 qa_pairs += f"[Q] {txt[i]['value']} [/Q] "
             else:
                 qa_pairs += f"{txt[i]['value']} "
-        return qa_pairs + "<EOS>", txt[-1]['value']
-    
+        return qa_pairs + "<EOS>", txt[-1]["value"]
 
     def _preprocess_data(self, data: DatasetDict) -> list[tuple[Image, str, str]]:
         """
@@ -107,22 +104,16 @@ class CustomDataset(Dataset):
         """
         processed_data = []
         for item in data:
-            image = self._process_img(item["image"])  
-            txt, label = self._process_txt(item["conversations"]) 
+            image = self._process_img(item["image"])
+            txt, label = self._process_txt(item["conversations"])
             processed_data.append((image, txt, label))
         return processed_data
-    
 
     def __len__(self) -> int:
         """Returns the length of batched dataset"""
         return len(self._data)
 
-
-    def __getitem__(self, idx: int) -> dict[str: Tensor]:
+    def __getitem__(self, idx: int) -> dict[str:Tensor]:
         """Preprocesses each datapoint and returns image, text, and masking tensors"""
         img, txt, label = self._data[idx]
-        return {
-            "img": img, 
-            "txt": txt,
-            "label": label
-        }
+        return {"img": img, "txt": txt, "label": label}
