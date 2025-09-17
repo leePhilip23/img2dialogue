@@ -4,10 +4,10 @@ from src.utils.train import train_data, run_training
 
 
 def test_model() -> None:
-    device = Retrieve.get_device()
-    model = Retrieve.get_model(cfg, device)
     with initialize(config_path="../../conf", version_base=None):
         cfg = compose(config_name="config")
+        device = Retrieve.get_device()
+        model = Retrieve.get_model(cfg, device)
         train_loader, valid_loader = train_data(cfg)
         loss = run_training(
             cfg, 
