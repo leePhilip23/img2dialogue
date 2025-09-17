@@ -1,4 +1,3 @@
-import wandb
 import torch
 from torch.utils.data import DataLoader
 from .loader import CustomDataset
@@ -44,4 +43,4 @@ def _run_predict(
 
 # TODO: Weights and Biases Setup
 def run_inference(cfg: MainConfig, test_laoder: DataLoader):
-    avg_loss = _run_predict(cfg, test_laoder)
+    _run_predict(cfg, test_laoder)

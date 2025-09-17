@@ -56,9 +56,9 @@ class Model(nn.Module):
                 bos_token=Tokens.BOS.value, 
                 eos_token=Tokens.EOS.value
             )
-        except TxtTokenizerNotFound:
+        except TxtTokenizerNotFound as e:
             log.error(f"Tokenizer not found for: {token_name} in Hugging Face Directory")
-            raise
+            raise TxtTokenizerNotFound(e)
 
 
     def _load_vision_model(self, img_model_name: str) -> Blip2VisionModel | CLIPVisionModel:
@@ -83,7 +83,7 @@ class Model(nn.Module):
                 slm_name,
                 low_cpu_mem_usage=True
             )
-        except LanguageModelNotFound as e:
+        except LanguageModelNotFound:
             log.error(f"Language Model: {slm_name} not found in Hugging Face directory")
             raise
 
