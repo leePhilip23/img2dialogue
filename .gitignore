@@ -1,6 +1,8 @@
 .venv
 .vscode
 .pytest_cache
+.ruff_cache
+mlruns
 outputs
 notebooks
 .DS_Store
