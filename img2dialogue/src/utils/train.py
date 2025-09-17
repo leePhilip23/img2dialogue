@@ -1,4 +1,3 @@
-import os
 import torch
 import mlflow
 from torch.utils.data import DataLoader
@@ -145,6 +144,11 @@ def run_training(
         train_loader (DataLoader): DataLoader for the training dataset
         valid_loader (DataLoader): DataLoader for the validation dataset
     """
+
+    # Set mlflow experiment
+    mlflow.set_tracking_uri("http://localhost:5000")
+    mlflow.set_experiment("Vision Language Model Finetune")
+
     patience = 3
     patience_count = 0
     best_val_loss = float("inf")
@@ -155,36 +159,36 @@ def run_training(
     )
     test_loss = []
 
-    # Model Training loop
-    for epoch in range(num_epochs):
-        train_loss = _train_loop(cfg, epoch, model, train_loader, optimizer, device)
-        log.info(f"Epoch {epoch} Avg Training Loss: {train_loss:.4f}")
+    with mlflow.start_run():
+        for epoch in range(num_epochs):
+            train_loss = _train_loop(cfg, epoch, model, train_loader, optimizer, device)
+            log.info(f"Epoch {epoch} Avg Training Loss: {train_loss:.4f}")
+            mlflow.log_metric("Train Loss", train_loss)
 
-        val_loss = _valid_loop(cfg, epoch, model, valid_loader, device)
-        log.info(f"Epoch {epoch} Avg Validation Loss: {val_loss:.4f}")
+            val_loss = _valid_loop(cfg, epoch, model, valid_loader, device)
+            log.info(f"Epoch {epoch} Avg Validation Loss: {val_loss:.4f}")
+            mlflow.log_metric("Validation Loss", val_loss)
 
-        if testing:
-            test_loss.append(train_loss)
+            if testing:
+                test_loss.append(train_loss)
 
-        # Early stopping condition
-        if val_loss < best_val_loss:
-            best_val_loss = val_loss
-            patience_count = 0
+            # Early stopping condition
+            if val_loss < best_val_loss:
+                best_val_loss = val_loss
+                patience_count = 0
 
-            # Save the best model
-            torch.save(
-                model.state_dict(),
-                os.path.join(
-                    cfg.train_param.save_pth, 
-                    f"best_model_epoch_{epoch+1}.pth"
-                ),
-            )
-            log.info(f"Epoch {epoch+1}: Validation loss improved, saving best model.")
-        else:
-            patience_count += 1
-            if patience_count >= patience:
-                log.info(f"Early stopping triggered after {patience} epochs with no improvement.")
-                break
+                # Log model to registry
+                mlflow.pytorch.log_model(
+                    name="CLIP-Qwen3B-0.6-VLM",
+                    artifact_path="VLM",
+                    registered_model_name="CLIP-Qwen3B-0.6-VLM",
+                )
+                log.info(f"Epoch {epoch+1}: Validation loss improved, saving best model.")
+            else:
+                patience_count += 1
+                if patience_count >= patience:
+                    log.info(f"Early stopping triggered after {patience} epochs with no improvement.")
+                    break
 
     if testing:
         return test_loss
